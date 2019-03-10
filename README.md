@@ -1,0 +1,2 @@
+# JAMWinAdmin
+Windows sysadmin scripts
