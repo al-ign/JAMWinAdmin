@@ -14,6 +14,10 @@ function Search-NtfsAclChange {
 .EXAMPLE
     Search-NtfsAclChange -Path C:\Users -DepthLimit 10 -IncludeFiles | Tee-Object -Variable Report | Format-Table
     Include files, limit search depth to 10 levels, add all output objects to the $Report variable and display interactively
+.EXAMPLE
+    $report = Search-NtfsAclChange -Path C:\Users -DepthLimit 10 -IncludeFiles
+    $report | Out-GridView -PassThru | % { $gi = Get-Item $_.path ; if ($gi.PSIsContainer) {start $gi.FullName} else {start $gi.DirectoryName}}
+    Same, but display result in the Out-GridView and open destination folder if selected in ogv.
 .INPUTS
     [string] as a starting path
 .OUTPUTS
@@ -41,11 +45,13 @@ param (
     # Internal parameter
     [int]$CurrentDepth = 0,
     # Internal parameter
-    $ParentAcl = $null
+    $ParentAcl = $null,
+    # Internal parameter
+    $PSIsContainer = $true
     )
     #don't uncomment on a big volumes - this considerably slows down the process
     #Write-Progress -Activity 'reporing' -Status "$path"
-
+#    $PSBoundParameters
     $state = [pscustomobject][ordered]@{
         path = $path
         aceAdded = [int]-1
@@ -94,19 +100,27 @@ param (
     if ($CurrentDepth -eq $depthLimit) {
         break
         }
-
-    if ($state.accessError -eq $false) {
-        if ($IncludeFiles) {
-            $gci = Get-ChildItem -LiteralPath $Path
-            foreach ($childItems in $gci) {
-                Search-NtfsAclChange -Path $childItems.FullName -ParentAcl $acl -CurrentDepth ($CurrentDepth + 1) -DepthLimit $DepthLimit -IncludeFiles
-                }
+        
+    if (($state.accessError -eq $false) -and $PSIsContainer) {
+        #PSIsContainer allows to avoid the redundant queries to the files
+        $gciSplat = @{
+            LiteralPath = $Path
+            Directory = -not $IncludeFiles
             }
-        else {
-            $gci = Get-ChildItem -LiteralPath $Path -Directory 
-            foreach ($childItems in $gci) {
-                Search-NtfsAclChange -Path $childItems.FullName -ParentAcl $acl -CurrentDepth ($CurrentDepth + 1) -DepthLimit $DepthLimit
+        $gci = Get-ChildItem @gciSplat
+        
+        foreach ($childItems in $gci) {
+            #and here splatting allows to cast the $IncludeFiles without using if ($IncludeFiles)
+            $splat = @{
+                Path = $childItems.FullName
+                DepthLimit = $DepthLimit
+                CurrentDepth = $CurrentDepth + 1
+                ParentAcl = $acl
+                IncludeFiles = $IncludeFiles
+                PSIsContainer = $childItems.PSIsContainer
                 }
+            Search-NtfsAclChange @splat
             }
         }
-    }
+}
+
